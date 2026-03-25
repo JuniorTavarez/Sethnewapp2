@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kids Coloring App</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f0f0f5;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+        }
+        .toolbar {
+            background-color: white;
+            padding: 15px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        button, input[type="file"], input[type="color"] {
+            padding: 10px;
+            font-size: 16px;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+            cursor: pointer;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            font-weight: bold;
+            border: none;
+        }
+        button:hover { background-color: #45a049; }
+        .rainbow-btn {
+            background: linear-gradient(90deg, red, orange, yellow, green, blue, indigo, violet);
+            color: white;
+            text-shadow: 1px 1px 2px black;
+        }
+        canvas {
+            background-color: white;
+            border: 2px solid #333;
+            border-radius: 5px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            max-width: 100%;
+            touch-action: none; /* Prevents scrolling when touching the canvas on a tablet */
+        }
+        .active-tool {
+            outline: 3px solid #000;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="toolbar">
+        <input type="file" id="imageLoader" accept="image/png, image/jpeg">
+        
+        <div>
+            <label for="colorPicker"><strong>Pick Color: </strong></label>
+            <input type="color" id="colorPicker" value="#ff0000">
+        </div>
+
+        <button id="manualBtn" class="active-tool">Manual Color</button>
+        <button id="rainbowBtn" class="rainbow-btn">Rainbow Mode!</button>
+    </div>
+
+    <canvas id="visibleCanvas" width="600" height="400"></canvas>
+
+    <script>
+        const imageLoader = document.getElementById('imageLoader');
+        const visibleCanvas = document.getElementById('visibleCanvas');
+        const ctx = visibleCanvas.getContext('2d', { willReadFrequently: true });
+        
+        const colorPicker = document.getElementById('colorPicker');
+        const manualBtn = document.getElementById('manualBtn');
+        const rainbowBtn = document.getElementById('rainbowBtn');
+
+        // The hidden canvas to store the original colors
+        const hiddenCanvas = document.createElement('canvas');
+        const hiddenCtx = hiddenCanvas.getContext('2d', { willReadFrequently: true });
+
+        let isRainbowMode = false;
+
+        // --- UI Controls ---
+        manualBtn.addEventListener('click', () => {
+            isRainbowMode = false;
+            manualBtn.classList.add('active-tool');
+            rainbowBtn.classList.remove('active-tool');
+        });
+
+        rainbowBtn.addEventListener('click', () => {
+            isRainbowMode = true;
+            rainbowBtn.classList.add('active-tool');
+            manualBtn.classList.remove('active-tool');
+        });
+
+        // --- Image Loading & Processing ---
+        imageLoader.addEventListener('change', handleImage, false);
+
+        function handleImage(e) {
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                const img = new Image();
+                img.onload = function() {
+                    // Resize canvases to fit the image
+                    visibleCanvas.width = hiddenCanvas.width = img.width;
+                    visibleCanvas.height = hiddenCanvas.height = img.height;
+                    
+                    // Draw original image to HIDDEN canvas
+                    hiddenCtx.drawImage(img, 0, 0);
+                    
+                    // Draw image to VISIBLE canvas and turn it to a basic outline
+                    ctx.drawImage(img, 0, 0);
+                    createBasicOutline();
+                }
+                img.src = event.target.result;
+            }
+            reader.readAsDataURL(e.target.files[0]);
+        }
+
+        // A basic function to turn an image into a black and white outline
+        function createBasicOutline() {
+            const imageData = ctx.getImageData(0, 0, visibleCanvas.width, visibleCanvas.height);
+            const data = imageData.data;
+            
+            // Very simple threshold filter to make it look like a coloring page
+            for (let i = 0; i < data.length; i += 4) {
+                let r = data[i];
+                let g = data[i+1];
+                let b = data[i+2];
+                
+                // Calculate brightness
+                let brightness = (r * 0.299 + g * 0.587 + b * 0.114);
+                
+                // If it's dark, make it a black line. If it's light, make it a white space to color.
+                let value = brightness < 100 ? 0 : 255; 
+                
+                data[i] = data[i+1] = data[i+2] = value;
+                data[i+3] = 255; // fully opaque
+            }
+            ctx.putImageData(imageData, 0, 0);
+        }
+
+        // --- Interaction & Coloring ---
+        visibleCanvas.addEventListener('mousedown', function(e) {
+            const rect = visibleCanvas.getBoundingClientRect();
+            // Calculate scale in case canvas is resized by CSS
+            const scaleX = visibleCanvas.width / rect.width;
+            const scaleY = visibleCanvas.height / rect.height;
+
+            const x = Math.floor((e.clientX - rect.left) * scaleX);
+            const y = Math.floor((e.clientY - rect.top) * scaleY);
+
+            let fillColor;
+
+            if (isRainbowMode) {
+                // Grab the exact pixel color from the HIDDEN canvas
+                const pixelData = hiddenCtx.getImageData(x, y, 1, 1).data;
+                fillColor = [pixelData[0], pixelData[1], pixelData[2], 255];
+            } else {
+                // Grab color from the color picker and convert hex to RGB
+                const hex = colorPicker.value;
+                const r = parseInt(hex.slice(1, 3), 16);
+                const g = parseInt(hex.slice(3, 5), 16);
+                const b = parseInt(hex.slice(5, 7), 16);
+                fillColor = [r, g, b, 255];
+            }
+
+            floodFill(x, y, fillColor);
+        });
+
+        // --- The Flood Fill Algorithm ---
+        function floodFill(startX, startY, fillColor) {
+            const imageData = ctx.getImageData(0, 0, visibleCanvas.width, visibleCanvas.height);
+            const data = imageData.data;
+            const width = visibleCanvas.width;
+            const height = visibleCanvas.height;
+
+            const targetPos = (startY * width + startX) * 4;
+            const targetColor = [
+                data[targetPos],
+                data[targetPos + 1],
+                data[targetPos + 2],
+                data[targetPos + 3]
+            ];
+
+            // If the user clicks on a black line, or the area is already the target color, do nothing
+            if (targetColor[0] === 0 && targetColor[1] === 0 && targetColor[2] === 0) return;
+            if (targetColor[0] === fillColor[0] && targetColor[1] === fillColor[1] && targetColor[2] === fillColor[2]) return;
+
+            const pixelStack = [[startX, startY]];
+
+            function matchStartColor(pixelPos) {
+                return (
+                    data[pixelPos] === targetColor[0] &&
+                    data[pixelPos + 1] === targetColor[1] &&
+                    data[pixelPos + 2] === targetColor[2]
+                );
+            }
+
+            function colorPixel(pixelPos) {
+                data[pixelPos] = fillColor[0];
+                data[pixelPos + 1] = fillColor[1];
+                data[pixelPos + 2] = fillColor[2];
+                data[pixelPos + 3] = 255;
+            }
+
+            while (pixelStack.length > 0) {
+                let newPos = pixelStack.pop();
+                let x = newPos[0];
+                let y = newPos[1];
+
+                let pixelPos = (y * width + x) * 4;
+                while (y-- >= 0 && matchStartColor(pixelPos)) {
+                    pixelPos -= width * 4;
+                }
+                pixelPos += width * 4;
+                ++y;
+
+                let reachLeft = false;
+                let reachRight = false;
+
+                while (y++ < height - 1 && matchStartColor(pixelPos)) {
+                    colorPixel(pixelPos);
+
+                    if (x > 0) {
+                        if (matchStartColor(pixelPos - 4)) {
+                            if (!reachLeft) {
+                                pixelStack.push([x - 1, y]);
+                                reachLeft = true;
+                            }
+                        } else if (reachLeft) {
+                            reachLeft = false;
+                        }
+                    }
+
+                    if (x < width - 1) {
+                        if (matchStartColor(pixelPos + 4)) {
+                            if (!reachRight) {
+                                pixelStack.push([x + 1, y]);
+                                reachRight = true;
+                            }
+                        } else if (reachRight) {
+                            reachRight = false;
+                        }
+                    }
+                    pixelPos += width * 4;
+                }
+            }
+            ctx.putImageData(imageData, 0, 0);
+        }
+    </script>
+</body>
+</html>
